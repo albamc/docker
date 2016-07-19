@@ -19,6 +19,10 @@ import (
 
 	"github.com/docker/docker/pkg/mount"
 	"github.com/opencontainers/runc/libcontainer/label"
+	"strings"
+	"regexp"
+	"github.com/docker/docker/pkg/parsers"
+	"strconv"
 )
 
 // This is a small wrapper over the NaiveDiffWriter that lets us have a custom
@@ -60,6 +64,11 @@ func (d *naiveDiffDriverWithApply) ApplyDiff(id, parent string, diff archive.Rea
 	return b, err
 }
 
+type options struct {
+	xfsPrjId string
+	xfsQuota string
+}
+
 // This backend uses the overlay union filesystem for containers
 // plus hard link file sharing for images.
 
@@ -94,6 +103,7 @@ type Driver struct {
 	uidMaps []idtools.IDMap
 	gidMaps []idtools.IDMap
 	ctr     *graphdriver.RefCounter
+	options options
 }
 
 func init() {
@@ -136,14 +146,54 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 		return nil, err
 	}
 
+	opt, err := parseOptions(options)
+	if err != nil {
+		return nil, err
+	}
+
 	d := &Driver{
 		home:    home,
 		uidMaps: uidMaps,
 		gidMaps: gidMaps,
 		ctr:     graphdriver.NewRefCounter(graphdriver.NewFsChecker(graphdriver.FsMagicOverlay)),
+		options: opt,
 	}
 
 	return NaiveDiffDriverWithApply(d, uidMaps, gidMaps), nil
+}
+
+func parseOptions(opt []string) (options, error) {
+	var ops options
+	for _, option := range opt {
+		key, val, err := parsers.ParseKeyValueOpt(option)
+		if err != nil {
+			return ops, err
+		}
+		key = strings.ToLower(key)
+		switch key {
+		case "overlay.xfs.size":
+			if backingFs != "xfs" {
+				return ops, fmt.Errorf("Option %s is not supported over %s", backingFs)
+			}
+			matched, err := regexp.MatchString("^[0-9]+[mgMG]{1}$", val)
+			if matched == false || err != nil {
+				return ops, fmt.Errorf("Invalid %s option value", key);
+			}
+			ops.xfsQuota += (" bsoft=" + val)
+		case "overlay.xfs.inode":
+			if backingFs != "xfs" {
+				return ops, fmt.Errorf("Option %s is not supported over %s", backingFs)
+			}
+			matched, err := regexp.MatchString("^[0-9]+$", val)
+			if matched == false || err != nil {
+				return ops, fmt.Errorf("Invalid %s option value", key);
+			}
+			ops.xfsQuota += (" isoft=" + val)
+		default:
+			return ops, fmt.Errorf("Unknown option %s", key)
+		}
+	}
+	return ops, nil
 }
 
 func supportsOverlay() error {
@@ -311,7 +361,58 @@ func (d *Driver) Create(id, parent, mountLabel string, storageOpt map[string]str
 		return err
 	}
 
+	driver := &Driver{}
+	if len(d.options.xfsQuota) != 0 {
+		if err := d.setXfsPrjId(dir, driver); err != nil {
+			return err
+		}
+		if err := d.applyXfsQuota(dir, driver.options.xfsPrjId); err != nil {
+			return err
+		}
+	}
+
 	return copyDir(parentUpperDir, upperDir, 0)
+}
+
+// Set xfs project number
+func (d *Driver) setXfsPrjId(dir string, driver *Driver) error {
+	// get inode number from container root directory
+	var stat syscall.Stat_t
+	if err := syscall.Stat(dir, &stat); err != nil {
+		logrus.Errorf("Failed to get stat from quota directory %s: %s", dir, err.Error())
+		return err
+	}
+	driver.options.xfsPrjId = strconv.FormatUint(stat.Ino, 10)
+	return nil
+}
+
+// apply quota for container root directory
+func (d *Driver) applyXfsQuota(dir string, xfsPrjId string) error {
+	// find mount path
+	cmd := "df -P " + dir + " | tail -1 | awk '{print $6}'"
+	path, err := exec.Command("sh", "-c", cmd).CombinedOutput()
+	if err != nil {
+		logrus.Errorf("Failed to find mount path for dir %s: %s", dir, err.Error())
+		logrus.Debugf("- stdout/stderr : %s", string(path))
+		return err
+	}
+	// create xfs project
+	cmd = "xfs_quota -x -c 'project -s -p " + dir + " " + xfsPrjId + "' " + string(path)
+	out1, err := exec.Command("sh", "-c", cmd).CombinedOutput()
+	if err != nil {
+		logrus.Errorf("Failed to create xfs project for %s: %s", dir, err.Error())
+		logrus.Debugf("- stdout/stderr : %s", out1)
+		return err
+	}
+	cmd = "xfs_quota -x -c 'limit -p " + d.options.xfsQuota + " " + xfsPrjId + "' " + string(path)
+	out2, err := exec.Command("sh", "-c", cmd).CombinedOutput()
+	if err != nil {
+		logrus.Errorf("Failed to set quota limit for directory %s: %s", dir, err.Error())
+		logrus.Debugf("- stdout/stderr : %s", out2)
+		return err
+	}
+	logrus.Debugf("Set xfs quota for %s: %s", dir, d.options.xfsQuota)
+	return nil
 }
 
 func (d *Driver) dir(id string) string {

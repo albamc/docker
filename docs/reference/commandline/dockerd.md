@@ -557,6 +557,25 @@ options for `zfs` start with `zfs` and options for `btrfs` start with `btrfs`.
     $ dockerd --storage-opt dm.min_free_space=10%
     ```
 
+#### overlay options
+
+* `overlay.xfs.size`
+
+    Specifies the soft limit (in bytes) to overlay directory for containers. use m/g to specify limits
+
+    Example use:
+
+        $ dockerd -s overlay --storage-opt overlay.xfs.size=100m
+
+
+* `overlay.xfs.inode`
+
+    Specifies the limit for inodes to overlay directory for containers.
+
+    Example use:
+
+        $ dockerd -s overlay --storage-opt overlay.xfs.inode=10000
+
 #### ZFS options
 
 * `zfs.fsname`
