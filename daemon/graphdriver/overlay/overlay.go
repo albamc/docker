@@ -179,7 +179,7 @@ func parseOptions(opt []string) (options, error) {
 			if matched == false || err != nil {
 				return ops, fmt.Errorf("Invalid %s option value", key);
 			}
-			ops.xfsQuota += (" bsoft=" + val)
+			ops.xfsQuota += (" bsoft=" + val + " bhard=" + val)
 		case "overlay.xfs.inode":
 			if backingFs != "xfs" {
 				return ops, fmt.Errorf("Option %s is not supported over %s", backingFs)
@@ -188,7 +188,7 @@ func parseOptions(opt []string) (options, error) {
 			if matched == false || err != nil {
 				return ops, fmt.Errorf("Invalid %s option value", key);
 			}
-			ops.xfsQuota += (" isoft=" + val)
+			ops.xfsQuota += (" isoft=" + val + " ihard=" + val)
 		default:
 			return ops, fmt.Errorf("Unknown option %s", key)
 		}
