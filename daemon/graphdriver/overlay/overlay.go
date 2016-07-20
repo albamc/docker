@@ -18,11 +18,11 @@ import (
 	"github.com/docker/docker/pkg/idtools"
 
 	"github.com/docker/docker/pkg/mount"
-	"github.com/opencontainers/runc/libcontainer/label"
-	"strings"
-	"regexp"
 	"github.com/docker/docker/pkg/parsers"
+	"github.com/opencontainers/runc/libcontainer/label"
+	"regexp"
 	"strconv"
+	"strings"
 )
 
 // This is a small wrapper over the NaiveDiffWriter that lets us have a custom
@@ -177,7 +177,7 @@ func parseOptions(opt []string) (options, error) {
 			}
 			matched, err := regexp.MatchString("^[0-9]+[mgMG]{1}$", val)
 			if matched == false || err != nil {
-				return ops, fmt.Errorf("Invalid %s option value", key);
+				return ops, fmt.Errorf("Invalid %s option value", key)
 			}
 			ops.xfsQuota += (" bsoft=" + val + " bhard=" + val)
 		case "overlay.xfs.inode":
@@ -186,7 +186,7 @@ func parseOptions(opt []string) (options, error) {
 			}
 			matched, err := regexp.MatchString("^[0-9]+$", val)
 			if matched == false || err != nil {
-				return ops, fmt.Errorf("Invalid %s option value", key);
+				return ops, fmt.Errorf("Invalid %s option value", key)
 			}
 			ops.xfsQuota += (" isoft=" + val + " ihard=" + val)
 		default:
